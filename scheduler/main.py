@@ -22,15 +22,17 @@ def main() -> int:
 
     logger.info(
         (
-            "scheduler_started backend=%s weekly_cron=%s image_prune_cron=%s timezone=%s "
-            "tick_seconds=%d"
+            "scheduler_started backend=%s weekly_cron=%s image_prune_cron=%s "
+            "optix_member_sync_cron=%s timezone=%s tick_seconds=%d"
         ),
         config.backend_api_url,
         config.cron_expression,
         config.image_prune_cron_expression,
+        config.optix_member_sync_cron_expression,
         config.timezone.key,
         config.tick_seconds,
     )
+
     while True:
         now_utc = datetime.now(tz=timezone.utc)
         local_now = now_utc.astimezone(config.timezone).replace(second=0, microsecond=0)
@@ -43,6 +45,10 @@ def main() -> int:
         if last_fired.get("image_prune") != minute_key and config.image_prune_schedule.matches(local_now):
             _run_image_prune(client, config.scheduler_token, local_now)
             last_fired["image_prune"] = minute_key
+
+        if last_fired.get("optix_member_sync") != minute_key and config.optix_member_sync_schedule.matches(local_now):
+            _run_optix_member_sync(client, config.scheduler_token, local_now)
+            last_fired["optix_member_sync"] = minute_key
 
         time.sleep(config.tick_seconds)
 
@@ -101,6 +107,22 @@ def _run_image_prune(client: BackendClient, token: str, local_now: datetime) -> 
     except BackendClientError as exc:
         logger.exception("image_prune_trigger_failed detail=%s", str(exc))
 
+def _run_optix_member_sync(client: BackendClient, token: str, local_now: datetime) -> None:
+    idempotency_key = f"optix-member-sync:{local_now.strftime('%Y-%m-%dT%H')}"
+    try:
+        result = client.trigger_optix_member_sync(
+            scheduler_token=token,
+            idempotency_key=idempotency_key,
+        )
+        logger.info(
+            "optix_member_sync_success created=%s updated=%s failed=%s pages=%s",
+            result.get("created"),
+            result.get("updated"),
+            result.get("failed"),
+            result.get("pages"),
+        )
+    except BackendClientError as exc:
+        logger.exception("optix_member_sync_failed detail=%s", str(exc))
 
 def compute_previous_week_range(now: datetime) -> tuple[date, date]:
     if now.tzinfo is None:

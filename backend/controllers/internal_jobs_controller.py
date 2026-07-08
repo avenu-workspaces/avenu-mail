@@ -13,6 +13,8 @@ from services.notifications.channels.factory import build_notification_channels
 from services.notifications.weekly_summary_cron_job import run_weekly_summary_cron_job
 from services.notifications.weekly_summary_notifier import WeeklySummaryNotifier
 from validators import require_dict
+from config import OPTIX_ORG_TOKEN
+from services.identity_sync_service import sync_all_optix_members
 
 internal_jobs_bp = Blueprint("internal_jobs", __name__)
 
@@ -115,6 +117,36 @@ def internal_image_prune_job_route():
         body = result.to_dict()
         commit_response(key=idempotency_key, route=route, method="POST", status=200, body=body)
         return jsonify(body), 200
+    except Exception:
+        rollback_reservation(key=idempotency_key, route=route, method="POST")
+        raise
+
+@internal_jobs_bp.route("/api/internal/jobs/optix-member-sync", methods=["POST"])
+def internal_optix_member_sync_route():
+    _require_scheduler_token()
+
+    if not OPTIX_ORG_TOKEN:
+        raise APIError(503, "OPTIX_ORG_TOKEN is not configured")
+
+    body_raw = request.get_json(silent=True)
+    payload = {} if body_raw is None else require_dict(body_raw)
+
+    route = "/api/internal/jobs/optix-member-sync"
+    idempotency_key, replay = begin_request(
+        headers=request.headers,
+        payload=payload,
+        route=route,
+        method="POST",
+    )
+    if replay is not None:
+        return jsonify(replay["body"]), replay["status"]
+
+    try:
+        counts = sync_all_optix_members(org_token=OPTIX_ORG_TOKEN)
+        commit_response(
+            key=idempotency_key, route=route, method="POST", status=200, body=counts
+        )
+        return jsonify(counts), 200
     except Exception:
         rollback_reservation(key=idempotency_key, route=route, method="POST")
         raise

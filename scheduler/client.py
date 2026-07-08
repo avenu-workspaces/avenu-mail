@@ -72,3 +72,22 @@ def _send(request: urllib.request.Request) -> dict:
         raise BackendClientError(f"backend returned status={exc.code} body={detail}") from exc
     except urllib.error.URLError as exc:
         raise BackendClientError(str(exc)) from exc
+
+def trigger_optix_member_sync(
+        self,
+        *,
+        scheduler_token: str,
+        idempotency_key: str,
+    ) -> dict:
+        payload = json.dumps({}).encode("utf-8")
+        request = urllib.request.Request(
+            url=f"{self._base_url}/api/internal/jobs/optix-member-sync",
+            method="POST",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "X-Scheduler-Token": scheduler_token,
+                "Idempotency-Key": idempotency_key,
+            },
+        )
+        return _send(request)

@@ -56,6 +56,8 @@ class SchedulerConfig:
     schedule: CronSchedule
     image_prune_cron_expression: str
     image_prune_schedule: CronSchedule
+    optix_member_sync_cron_expression: str
+    optix_member_sync_schedule: CronSchedule
     timezone: ZoneInfo
     tick_seconds: int
 
@@ -75,6 +77,11 @@ def load_config() -> SchedulerConfig:
     if not image_prune_cron_expression:
         raise RuntimeError("IMAGE_PRUNE_CRON is required")
     image_prune_schedule = parse_cron_expression(image_prune_cron_expression)
+    
+    optix_member_sync_cron_expression = os.getenv("OPTIX_MEMBER_SYNC_CRON", "0 * * * *").strip()
+    if not optix_member_sync_cron_expression:
+        raise RuntimeError("OPTIX_MEMBER_SYNC_CRON is required")
+    optix_member_sync_schedule = parse_cron_expression(optix_member_sync_cron_expression)
 
     timezone_name = os.getenv("SCHEDULER_TIMEZONE", "UTC").strip() or "UTC"
     timezone = ZoneInfo(timezone_name)
@@ -90,6 +97,8 @@ def load_config() -> SchedulerConfig:
         schedule=schedule,
         image_prune_cron_expression=image_prune_cron_expression,
         image_prune_schedule=image_prune_schedule,
+        optix_member_sync_cron_expression=optix_member_sync_cron_expression,
+        optix_member_sync_schedule=optix_member_sync_schedule,
         timezone=timezone,
         tick_seconds=tick_seconds,
     )

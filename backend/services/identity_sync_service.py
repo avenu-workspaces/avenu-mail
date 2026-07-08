@@ -94,10 +94,106 @@ def sync_optix_identity(*, token: str) -> tuple[bool, dict[str, Any]]:
 
     user_doc, created = upsert_user_from_external_identity(
         optix_id=optix_user_id,
-        fullname=user_info.get("fullname", ""),
+        fullname=member.get("fullname") or "",
         email=user_info.get("email", ""),
         phone=user_info.get("phone", ""),
         is_admin=bool(user_info.get("is_admin", False)),
         team_ids=team_ids,
     )
     return created, user_doc
+
+OPTIX_ORG_MEMBERS_QUERY = """
+query OrgMembers($page: Int!) {
+  users(
+    limit: 100
+    page: $page
+    include_active: true
+    include_pending: true
+    include_inactive: true
+    include_deleted: false
+  ) {
+    data {
+      user_id
+      fullname
+      email
+      phone
+      is_admin
+      teams {
+        team_id
+        name
+      }
+    }
+  }
+}
+"""
+
+OPTIX_MEMBERS_PAGE_SIZE = 100
+
+
+def sync_all_optix_members(*, org_token: str) -> dict[str, int]:
+    counts = {"created": 0, "updated": 0, "failed": 0, "pages": 0}
+    page = 1
+
+    while True:
+        response = requests.post(
+            OPTIX_GRAPHQL_ENDPOINT,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {org_token}",
+            },
+            json={"query": OPTIX_ORG_MEMBERS_QUERY, "variables": {"page": page}},
+        )
+
+        if response.status_code != 200:
+            raise APIError(response.status_code, "Failed to query Optix members list")
+
+        data = response.json()
+        members = data.get("data", {}).get("users", {}).get("data", [])
+        if not isinstance(members, list):
+            raise APIError(502, "Unexpected Optix members payload shape")
+
+        counts["pages"] += 1
+
+        for member in members:
+            try:
+                if not member.get("fullname"):
+                    counts["failed"] += 1
+                    continue
+                optix_user_id = _coerce_positive_int(
+                    member.get("user_id"), field_name="user_id"
+                )
+                team_ids = []
+                for team in member.get("teams") or []:
+                    optix_team_id = _coerce_positive_int(
+                        team.get("team_id"), field_name="team_id"
+                    )
+                    team_doc = ensure_team_from_external_identity(
+                        optix_id=optix_team_id, name=team.get("name", "")
+                    )
+                    team_ids.append(team_doc["_id"])
+
+                _user_doc, created = upsert_user_from_external_identity(
+                    optix_id=optix_user_id,
+		    fullname=member.get("fullname") or "",
+                    email=member.get("email", ""),
+                    phone=member.get("phone"),
+                    is_admin=bool(member.get("is_admin", False)),
+                    team_ids=team_ids,
+                )
+                if created:
+                    counts["created"] += 1
+                else:
+                    counts["updated"] += 1
+            except Exception:
+                counts["failed"] += 1
+                import logging
+                logging.getLogger(__name__).exception(
+                    "optix_member_sync_record_failed optix_user_id=%s",
+                    member.get("user_id"),
+                )
+
+        if len(members) < OPTIX_MEMBERS_PAGE_SIZE:
+            break
+        page += 1
+
+    return counts
