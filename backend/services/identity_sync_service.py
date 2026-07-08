@@ -94,7 +94,7 @@ def sync_optix_identity(*, token: str) -> tuple[bool, dict[str, Any]]:
 
     user_doc, created = upsert_user_from_external_identity(
         optix_id=optix_user_id,
-        fullname=member.get("fullname") or "",
+        fullname=user_info.get("fullname") or "",
         email=user_info.get("email", ""),
         phone=user_info.get("phone", ""),
         is_admin=bool(user_info.get("is_admin", False)),
